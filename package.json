@@ -1,0 +1,18 @@
+{
+  "name": "amail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "amail": "./bin/amail.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "verify:probe": "node scripts/verify-milestone-1.mjs",
+    "test:mutation": "stryker run",
+    "check": "node --check bin/amail.mjs && node --check src/config.mjs && node --check src/away.mjs && node --check src/email.mjs && node --check src/routing.mjs && node --check src/runtime.mjs && node --check test/config-away.test.mjs && node --check test/email.test.mjs && node --check test/routing.test.mjs && node --check test/runtime.test.mjs && node --check .github/extensions/amail-bridge/extension.mjs"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1"
+  }
+}

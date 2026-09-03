@@ -1,0 +1,14 @@
+node_modules/
+
+coverage/
+.nyc_output/
+mutation/
+mutations/
+
+.env
+.env.*
+!.env.example
+
+.amail/
+.local/
+amail-state/
