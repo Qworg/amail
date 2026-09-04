@@ -8,6 +8,10 @@ CLI session. While away mode is enabled, its project extension:
 - accepts one reply to that completion email as the next prompt in the same
   still-idle session.
 
+Structured question emails include every single- and multi-select choice.
+Replies can be natural sentences; amail maps referenced labels and values back
+to the native typed form.
+
 The terminal remains active and authoritative. Permission prompts are never
 approved through email, and all routing state is intentionally in memory.
 

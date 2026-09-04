@@ -196,8 +196,9 @@ test("renders and parses labeled oneOf choices in structured questions", async (
     });
     await waitFor(() => emailClient.sent.length === 1);
 
-    assert.match(emailClient.sent[0].text, /1\. Run a live email test \[live_e2e\]/);
-    assert.match(emailClient.sent[0].text, /2\. Merge the pull request \[merge_pr\]/);
+    assert.match(emailClient.sent[0].text, /\[live_e2e\] Run a live email test/);
+    assert.match(emailClient.sent[0].text, /\[merge_pr\] Merge the pull request/);
+    assert.doesNotMatch(emailClient.sent[0].text, /field: value|Reply with JSON/);
 
     await runtime.processInboundEmail(receivedEmail({
         id: "received-options",
@@ -209,6 +210,82 @@ test("renders and parses labeled oneOf choices in structured questions", async (
         result: {
             action: "accept",
             content: { priority: "merge_pr" },
+        },
+    }]);
+});
+
+test("renders nested multi-select choices and accepts a natural-language answer", async () => {
+    const { runtime, session, calls, emailClient } = createRuntime();
+    await runtime.start();
+    session.emit("elicitation.requested", {
+        requestId: "request-natural",
+        message: "Choose what amail should do next.",
+        mode: "form",
+        requestedSchema: {
+            type: "object",
+            required: ["next_focus", "notification_policy"],
+            properties: {
+                next_focus: {
+                    type: "string",
+                    title: "Primary next step",
+                    oneOf: [
+                        { const: "live_demo", title: "Record a complete live email demo" },
+                        { const: "merge_mvp", title: "Merge the completed MVP" },
+                        { const: "add_ci", title: "Add automated GitHub Actions checks" },
+                    ],
+                },
+                notification_policy: {
+                    type: "string",
+                    title: "Completion email policy",
+                    enum: ["every_away_turn", "only_long_turns", "manual_only"],
+                    enumNames: [
+                        "After every turn while away",
+                        "Only after long-running turns",
+                        "Only when explicitly requested",
+                    ],
+                },
+                desired_followups: {
+                    type: "array",
+                    title: "Possible follow-up improvements",
+                    items: {
+                        anyOf: [
+                            { const: "durable_tokens", title: "Preserve tokens across extension reloads" },
+                            { const: "question_batching", title: "Batch several pending questions into one email" },
+                            { const: "rejection_email", title: "Email the user when a stale reply is rejected" },
+                            { const: "url_elicitation", title: "Support URL-based Copilot requests" },
+                        ],
+                    },
+                },
+            },
+        },
+    });
+    await waitFor(() => emailClient.sent.length === 1);
+
+    assert.match(
+        emailClient.sent[0].text,
+        /\[question_batching\] Batch several pending questions into one email/,
+    );
+    assert.match(
+        emailClient.sent[0].text,
+        /\[rejection_email\] Email the user when a stale reply is rejected/,
+    );
+    assert.match(emailClient.sent[0].text, /Reply naturally in a sentence/);
+
+    await runtime.processInboundEmail(receivedEmail({
+        id: "received-natural",
+        replyTo: emailClient.sent[0].replyTo,
+        text: "Merge the MVP, notify me only for long turns, and add question batching plus rejection emails.",
+    }));
+
+    assert.deepEqual(calls.elicitations, [{
+        requestId: "request-natural",
+        result: {
+            action: "accept",
+            content: {
+                next_focus: "merge_mvp",
+                notification_policy: "only_long_turns",
+                desired_followups: ["question_batching", "rejection_email"],
+            },
         },
     }]);
 });

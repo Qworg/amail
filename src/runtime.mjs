@@ -21,26 +21,29 @@ function propertyLabel(name, schema) {
 }
 
 function schemaOptions(schema) {
-    if (Array.isArray(schema?.oneOf)) {
-        return schema.oneOf.map((option) => ({
+    const optionSchema = schema?.type === "array"
+        ? schema.items
+        : schema;
+    if (Array.isArray(optionSchema?.oneOf)) {
+        return optionSchema.oneOf.map((option) => ({
             value: option?.const,
             label: typeof option?.title === "string"
                 ? option.title
                 : String(option?.const ?? ""),
         }));
     }
-    if (Array.isArray(schema?.anyOf)) {
-        return schema.anyOf.map((option) => ({
+    if (Array.isArray(optionSchema?.anyOf)) {
+        return optionSchema.anyOf.map((option) => ({
             value: option?.const,
             label: typeof option?.title === "string"
                 ? option.title
                 : String(option?.const ?? ""),
         }));
     }
-    if (Array.isArray(schema?.enum)) {
-        return schema.enum.map((value, index) => ({
+    if (Array.isArray(optionSchema?.enum)) {
+        return optionSchema.enum.map((value, index) => ({
             value,
-            label: schema.enumNames?.[index] ?? String(value),
+            label: optionSchema.enumNames?.[index] ?? String(value),
         }));
     }
     return [];
@@ -56,34 +59,124 @@ function elicitationPrompt(event) {
             const required = event.data.requestedSchema?.required?.includes(name)
                 ? " (required)"
                 : "";
-            lines.push(`${propertyLabel(name, schema)} [${name}]${required}`);
+            const selection = schema?.type === "array" ? " (choose any)" : "";
+            lines.push(`${propertyLabel(name, schema)}${required}${selection}`);
             if (typeof schema?.description === "string" && schema.description.trim()) {
                 lines.push(`  ${schema.description.trim()}`);
             }
             const options = schemaOptions(schema);
             if (options.length > 0) {
+                lines.push("  Choices:");
                 lines.push(
-                    ...options.map(
-                        (option, index) => (
-                            `  ${index + 1}. ${option.label}`
-                            + (
-                                String(option.value) === option.label
-                                    ? ""
-                                    : ` [${String(option.value)}]`
-                            )
-                        ),
-                    ),
+                    ...options.map((option) => (
+                        `    [${String(option.value)}] ${option.label}`
+                    )),
                 );
             }
+            lines.push("");
         }
-        lines.push(
-            "",
-            entries.length === 1
-                ? "Reply with the value."
-                : "Reply with JSON or one `field: value` line per field.",
-        );
     }
     return lines.join("\n");
+}
+
+const NATURAL_STOP_WORDS = new Set([
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "be",
+    "for",
+    "from",
+    "i",
+    "in",
+    "into",
+    "it",
+    "me",
+    "of",
+    "on",
+    "one",
+    "only",
+    "or",
+    "the",
+    "to",
+    "with",
+]);
+
+function stemWord(word) {
+    if (word.length > 5 && word.endsWith("ing")) {
+        return word.slice(0, -3);
+    }
+    if (word.length > 4 && word.endsWith("ed")) {
+        return word.slice(0, -2);
+    }
+    if (word.length > 4 && word.endsWith("s")) {
+        return word.slice(0, -1);
+    }
+    return word;
+}
+
+function naturalTokens(value) {
+    return String(value)
+        .toLowerCase()
+        .replace(/[_-]+/g, " ")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(stemWord)
+        .filter((word) => !NATURAL_STOP_WORDS.has(word));
+}
+
+function optionScore(replyTokens, option) {
+    const optionTokens = new Set([
+        ...naturalTokens(option.value),
+        ...naturalTokens(option.label),
+    ]);
+    if (optionTokens.size === 0) {
+        return 0;
+    }
+    let matches = 0;
+    for (const token of optionTokens) {
+        if (replyTokens.has(token)) {
+            matches += 1;
+        }
+    }
+    return matches / Math.min(optionTokens.size, 3);
+}
+
+function inferNaturalReply(reply, properties) {
+    const replyTokens = new Set(naturalTokens(reply));
+    const supplied = {};
+
+    for (const [name, schema] of Object.entries(properties)) {
+        const options = schemaOptions(schema);
+        if (options.length === 0) {
+            continue;
+        }
+        const ranked = options
+            .map((option) => ({
+                option,
+                score: optionScore(replyTokens, option),
+            }))
+            .filter(({ score }) => score >= 0.5)
+            .sort((left, right) => right.score - left.score);
+
+        if (schema?.type === "array") {
+            if (ranked.length > 0) {
+                supplied[name] = ranked.map(({ option }) => option.value);
+            }
+        } else if (
+            ranked.length > 0
+            && (
+                ranked.length === 1
+                || ranked[0].score > ranked[1].score
+            )
+        ) {
+            supplied[name] = ranked[0].option.value;
+        }
+    }
+
+    return supplied;
 }
 
 function parseFieldLines(reply) {
@@ -107,6 +200,27 @@ function parseFieldLines(reply) {
 function coerceField(value, schema, name) {
     const options = schemaOptions(schema);
     if (options.length > 0) {
+        if (schema?.type === "array") {
+            const values = Array.isArray(value)
+                ? value
+                : String(value).split(/\s*,\s*/);
+            return values.map((item) => {
+                const normalized = String(item).trim().toLowerCase();
+                const matched = options.find(
+                    (option) => (
+                        String(option.value).toLowerCase() === normalized
+                        || option.label.toLowerCase() === normalized
+                    ),
+                );
+                if (!matched) {
+                    throw new EmailValidationError(
+                        `${name} must contain only: ${options.map(({ label }) => label).join(", ")}`,
+                        "invalid_elicitation_reply",
+                    );
+                }
+                return matched.value;
+            });
+        }
         const normalized = String(value).trim().toLowerCase();
         const numbered = /^\d+$/.test(normalized)
             ? options[Number(normalized) - 1]
@@ -190,9 +304,15 @@ export function parseElicitationReply(reply, requestedSchema) {
                 ? { [names[0]]: reply }
                 : parsed;
     } catch {
-        supplied = names.length === 1
-            ? { [names[0]]: reply }
-            : parseFieldLines(reply);
+        if (names.length === 1) {
+            supplied = { [names[0]]: reply };
+        } else if (reply.split(/\r?\n/).every(
+            (line) => !line.trim() || line.includes(":"),
+        )) {
+            supplied = parseFieldLines(reply);
+        } else {
+            supplied = inferNaturalReply(reply, properties);
+        }
     }
     if (!supplied || typeof supplied !== "object" || Array.isArray(supplied)) {
         throw new EmailValidationError(
@@ -292,7 +412,7 @@ export function createAmailRuntime({
             token: issued.token,
             receiveDomain: config.receiveDomain,
             replyHint: metadata.variant === "elicitation"
-                ? "Reply with the requested value, JSON, or one `field: value` line per field."
+                ? "Reply naturally in a sentence. You may also use the bracketed choice values."
                 : undefined,
         });
         try {
