@@ -37,16 +37,16 @@ This is a version-pinned prototype for Copilot CLI `1.0.83-3`, not a production 
 
 ## First milestone: native-event go/no-go
 
-The highest-risk assumption is whether a joined extension can observe `user_input.requested` while the standard TUI remains an active responder.
+The highest-risk assumption is whether a joined extension can observe the session's active native question event (`user_input.requested` or `elicitation.requested`) while the standard TUI remains an active responder.
 
 Before implementing Resend or persistence:
 
 1. Load a minimal project extension and call `joinSession()`.
-2. Subscribe to `user_input.requested`.
+2. Subscribe to both native question event variants.
 3. Trigger a harmless native Copilot question.
-4. If necessary, register interest through `session.rpc.eventLog.registerInterest()`.
+4. If necessary, register interest for the active event through `session.rpc.eventLog.registerInterest()`.
 5. Verify that the extension receives the request **and** the terminal can still answer it.
-6. Resolve a second request through `session.rpc.ui.handlePendingUserInput()` and verify `success: true`.
+6. Resolve a second request through the corresponding native UI RPC and verify `success: true`.
 7. Answer a third request in the terminal first and verify the extension receives `success: false`.
 
 ### Decision
@@ -55,6 +55,24 @@ Before implementing Resend or persistence:
 - **Probe fails or suppresses the TUI:** do not replace the native handler. Use the extension's explicit `ask_human_by_email` tool as the question flow.
 
 This decision is made in the first 30 minutes. No later work depends on an unverified native-event assumption.
+
+### Milestone result
+
+The probe passed on Copilot CLI `1.0.83-3` for the active `elicitation.requested` variant:
+
+- registering event interest delivered the request to the extension;
+- the normal structured terminal form remained usable;
+- `session.rpc.ui.handlePendingElicitation()` resolved an outstanding request with `success: true`;
+- after the terminal answered first, the same RPC returned `success: false`.
+
+The extension also contains the equivalent legacy `user_input.requested` listener, but that variant was not active in this session and therefore remains unverified live.
+
+### Implementation validation
+
+- The native Copilot request observation and first-writer-wins RPC behavior were exercised live.
+- The configured Resend key successfully listed received email through the live API.
+- A verified sender delivered a structured question to the configured Microsoft address, and the reply returned through the native Copilot elicitation.
+- The three MVP routing flows are covered with the real Copilot event/RPC shapes and fixture-backed Resend responses.
 
 ## User experience
 
@@ -71,7 +89,7 @@ The project extension joins the foreground session. Away mode is represented by 
 When away mode is on and Copilot emits a native user-input request:
 
 ```text
-Subject: [amail:7f3a] Input needed
+Subject: amail: input needed
 
 Copilot needs your input:
 
@@ -103,7 +121,7 @@ ask_human_by_email({
 When the root session becomes idle without being aborted, the extension sends the last root assistant response:
 
 ```text
-Subject: [amail:7f3a] Complete
+Subject: amail: Qworg/amail complete
 
 Repository: Qworg/amail
 
@@ -112,7 +130,7 @@ Implemented previous/next pagination and added coverage.
 Reply with one follow-up instruction while this session remains idle.
 ```
 
-The extension sends only while away mode is on. It ignores sub-agent idle events and labels aborted turns as interrupted rather than complete.
+The extension sends only while away mode is on. It ignores sub-agent idle events and does not send a completion message for aborted turns.
 
 ### Continue
 
@@ -242,7 +260,7 @@ The minimum shippable submission is criteria 1-6. The fixture is the demo fallba
 ## Follow-ups deliberately deferred
 
 - native permission mirroring and approval;
-- structured elicitation;
+- supporting native question variants beyond the one active in the pinned CLI session;
 - batching multiple questions;
 - durable queues and restart recovery;
 - multiple connected sessions;
