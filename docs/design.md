@@ -71,8 +71,8 @@ The extension also contains the equivalent legacy `user_input.requested` listene
 
 - The native Copilot request observation and first-writer-wins RPC behavior were exercised live.
 - The configured Resend key successfully listed received email through the live API.
+- A verified sender delivered a structured question to the configured Microsoft address, and the reply returned through the native Copilot elicitation.
 - The three MVP routing flows are covered with the real Copilot event/RPC shapes and fixture-backed Resend responses.
-- Live outbound delivery to the requested Microsoft recipient is pending a Resend-verified sending domain; a receiving domain alone cannot be used as `AMAIL_FROM`.
 
 ## User experience
 

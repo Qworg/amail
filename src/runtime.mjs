@@ -20,6 +20,32 @@ function propertyLabel(name, schema) {
         : name;
 }
 
+function schemaOptions(schema) {
+    if (Array.isArray(schema?.oneOf)) {
+        return schema.oneOf.map((option) => ({
+            value: option?.const,
+            label: typeof option?.title === "string"
+                ? option.title
+                : String(option?.const ?? ""),
+        }));
+    }
+    if (Array.isArray(schema?.anyOf)) {
+        return schema.anyOf.map((option) => ({
+            value: option?.const,
+            label: typeof option?.title === "string"
+                ? option.title
+                : String(option?.const ?? ""),
+        }));
+    }
+    if (Array.isArray(schema?.enum)) {
+        return schema.enum.map((value, index) => ({
+            value,
+            label: schema.enumNames?.[index] ?? String(value),
+        }));
+    }
+    return [];
+}
+
 function elicitationPrompt(event) {
     const lines = [event.data.message];
     const properties = event.data.requestedSchema?.properties ?? {};
@@ -34,8 +60,20 @@ function elicitationPrompt(event) {
             if (typeof schema?.description === "string" && schema.description.trim()) {
                 lines.push(`  ${schema.description.trim()}`);
             }
-            if (Array.isArray(schema?.enum)) {
-                lines.push(`  Options: ${schema.enum.join(", ")}`);
+            const options = schemaOptions(schema);
+            if (options.length > 0) {
+                lines.push(
+                    ...options.map(
+                        (option, index) => (
+                            `  ${index + 1}. ${option.label}`
+                            + (
+                                String(option.value) === option.label
+                                    ? ""
+                                    : ` [${String(option.value)}]`
+                            )
+                        ),
+                    ),
+                );
             }
         }
         lines.push(
@@ -67,17 +105,26 @@ function parseFieldLines(reply) {
 }
 
 function coerceField(value, schema, name) {
-    if (schema?.enum) {
-        const match = schema.enum.find(
-            (candidate) => String(candidate).toLowerCase() === String(value).trim().toLowerCase(),
+    const options = schemaOptions(schema);
+    if (options.length > 0) {
+        const normalized = String(value).trim().toLowerCase();
+        const numbered = /^\d+$/.test(normalized)
+            ? options[Number(normalized) - 1]
+            : undefined;
+        const matched = options.find(
+            (option) => (
+                String(option.value).toLowerCase() === normalized
+                || option.label.toLowerCase() === normalized
+            ),
         );
-        if (match === undefined) {
+        const selected = numbered ?? matched;
+        if (selected === undefined) {
             throw new EmailValidationError(
-                `${name} must be one of: ${schema.enum.join(", ")}`,
+                `${name} must be one of: ${options.map(({ label }) => label).join(", ")}`,
                 "invalid_elicitation_reply",
             );
         }
-        return match;
+        return selected.value;
     }
 
     if (schema?.type === "boolean") {
@@ -132,7 +179,16 @@ export function parseElicitationReply(reply, requestedSchema) {
 
     let supplied;
     try {
-        supplied = JSON.parse(reply);
+        const parsed = JSON.parse(reply);
+        supplied = (
+            parsed
+            && typeof parsed === "object"
+            && !Array.isArray(parsed)
+        )
+            ? parsed
+            : names.length === 1
+                ? { [names[0]]: reply }
+                : parsed;
     } catch {
         supplied = names.length === 1
             ? { [names[0]]: reply }

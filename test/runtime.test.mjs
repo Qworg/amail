@@ -172,6 +172,47 @@ test("parses typed structured elicitation replies", () => {
     );
 });
 
+test("renders and parses labeled oneOf choices in structured questions", async () => {
+    const { runtime, session, calls, emailClient } = createRuntime();
+    await runtime.start();
+    session.emit("elicitation.requested", {
+        requestId: "request-options",
+        message: "Choose the next task.",
+        mode: "form",
+        requestedSchema: {
+            type: "object",
+            required: ["priority"],
+            properties: {
+                priority: {
+                    type: "string",
+                    title: "Next priority",
+                    oneOf: [
+                        { const: "live_e2e", title: "Run a live email test" },
+                        { const: "merge_pr", title: "Merge the pull request" },
+                    ],
+                },
+            },
+        },
+    });
+    await waitFor(() => emailClient.sent.length === 1);
+
+    assert.match(emailClient.sent[0].text, /1\. Run a live email test \[live_e2e\]/);
+    assert.match(emailClient.sent[0].text, /2\. Merge the pull request \[merge_pr\]/);
+
+    await runtime.processInboundEmail(receivedEmail({
+        id: "received-options",
+        replyTo: emailClient.sent[0].replyTo,
+        text: "2",
+    }));
+    assert.deepEqual(calls.elicitations, [{
+        requestId: "request-options",
+        result: {
+            action: "accept",
+            content: { priority: "merge_pr" },
+        },
+    }]);
+});
+
 test("maps legacy numbered choices and rejects unsupported freeform answers", () => {
     assert.deepEqual(
         parseLegacyAnswer("2", {

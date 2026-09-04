@@ -76,8 +76,8 @@ recording in `test\fixtures\amail-milestone-1-events.jsonl`: the TUI remained
 active, extension-first resolution succeeded, and terminal-first resolution
 made the extension lose safely.
 
-The native Copilot race probe and Resend received-email API were exercised
-live. The three routing flows are covered with the real event/RPC shapes and a
-fixture-backed Resend client. Live outbound delivery to the configured
-Microsoft address remains blocked until `AMAIL_FROM` uses a Resend-verified
-sending domain; the current receiving domain is not also a verified sender.
+The native Copilot race probe, Resend received-email API, and outbound delivery
+to the configured Microsoft address were exercised live. A live structured
+question was delivered and its response returned to the native Copilot
+elicitation. The remaining routing cases are covered with the real event/RPC
+shapes and a fixture-backed Resend client.
