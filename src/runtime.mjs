@@ -305,7 +305,10 @@ export function parseElicitationReply(reply, requestedSchema) {
                 : parsed;
     } catch {
         if (names.length === 1) {
-            supplied = { [names[0]]: reply };
+            const inferred = inferNaturalReply(reply, properties);
+            supplied = inferred[names[0]] === undefined
+                ? { [names[0]]: reply }
+                : inferred;
         } else if (reply.split(/\r?\n/).every(
             (line) => !line.trim() || line.includes(":"),
         )) {

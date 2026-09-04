@@ -173,6 +173,23 @@ test("parses typed structured elicitation replies", () => {
 });
 
 test("renders and parses labeled oneOf choices in structured questions", async () => {
+    assert.deepEqual(
+        parseElicitationReply("I answered via email!", {
+            type: "object",
+            properties: {
+                reply_source: {
+                    type: "string",
+                    oneOf: [
+                        { const: "email", title: "Email" },
+                        { const: "terminal", title: "Terminal" },
+                        { const: "other", title: "Other" },
+                    ],
+                },
+            },
+        }),
+        { reply_source: "email" },
+    );
+
     const { runtime, session, calls, emailClient } = createRuntime();
     await runtime.start();
     session.emit("elicitation.requested", {
@@ -203,7 +220,7 @@ test("renders and parses labeled oneOf choices in structured questions", async (
     await runtime.processInboundEmail(receivedEmail({
         id: "received-options",
         replyTo: emailClient.sent[0].replyTo,
-        text: "2",
+        text: "Please merge the pull request.",
     }));
     assert.deepEqual(calls.elicitations, [{
         requestId: "request-options",
