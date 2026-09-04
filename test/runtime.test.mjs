@@ -630,6 +630,7 @@ test("retries a follow-up when session injection fails before consuming the toke
 
 test("poll retrieves only unseen messages", async () => {
     const { runtime, emailClient } = createRuntime();
+    await runtime.start();
     const reply = receivedEmail({
         id: "unknown-message",
         replyTo: "reply+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@inbound.example.com",
@@ -643,13 +644,13 @@ test("poll retrieves only unseen messages", async () => {
         return retrieve(id);
     };
 
-    await runtime.start();
     await runtime.poll();
     assert.equal(retrievals, 1);
 });
 
 test("continues polling after one message retrieval fails", async () => {
     const { runtime, emailClient, calls } = createRuntime();
+    await runtime.start();
     emailClient.received.push(
         receivedEmail({
             id: "good-message",
@@ -666,14 +667,37 @@ test("continues polling after one message retrieval fails", async () => {
         return retrieve(id);
     };
 
-    await runtime.start();
+    await runtime.poll();
     assert.match(
         calls.logs.find(({ message }) => message.includes("bad-message")).message,
         /temporary retrieve failure/,
     );
-    assert.match(
-        calls.logs.find(({ message }) => message.includes("unusable token")).message,
-        /wrong_token/,
+    assert.equal(
+        calls.logs.some(({ message }) => message.includes("wrong_token")),
+        false,
+    );
+});
+
+test("baselines historical inbox messages without retrieving or logging them", async () => {
+    const { runtime, emailClient, calls } = createRuntime();
+    emailClient.received.push(receivedEmail({
+        id: "historical-message",
+        replyTo: "reply+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@inbound.example.com",
+        text: "Old reply",
+    }));
+    let retrievals = 0;
+    emailClient.retrieveReceivedEmail = async () => {
+        retrievals += 1;
+        throw new Error("historical mail should not be retrieved");
+    };
+
+    await runtime.start();
+    await runtime.poll();
+
+    assert.equal(retrievals, 0);
+    assert.equal(
+        calls.logs.some(({ message }) => message.includes("wrong_token")),
+        false,
     );
 });
 

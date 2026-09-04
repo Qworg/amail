@@ -604,7 +604,7 @@ export function createAmailRuntime({
         const followup = router.inspectFollowup(parsed.token);
         if (followup.ok) {
             await handleFollowupReply(parsed, followup);
-        } else {
+        } else if (followup.reason !== "wrong_token") {
             await log(
                 `amail ignored a reply with an unusable token: ${followup.reason}`,
                 "warning",
@@ -636,6 +636,13 @@ export function createAmailRuntime({
         }
     }
 
+    async function baselineInbox() {
+        const page = await emailClient.listReceivedEmails({ limit: 100 });
+        for (const summary of page.data) {
+            processedEmailIds.add(summary.id);
+        }
+    }
+
     function subscribe(eventType, handler) {
         unsubscribers.push(session.on(eventType, (event) => {
             void safe(eventType, () => handler(event));
@@ -647,6 +654,8 @@ export function createAmailRuntime({
             const { handle } = await session.rpc.eventLog.registerInterest({ eventType });
             interestHandles.push(handle);
         }
+
+        await safe("inbox baseline failed", baselineInbox);
 
         subscribe("user_input.requested", onUserInputRequested);
         subscribe("elicitation.requested", onElicitationRequested);
@@ -699,7 +708,6 @@ export function createAmailRuntime({
             void safe("poll failed", poll);
         }, config.pollIntervalMs);
         timer?.unref?.();
-        await safe("initial poll failed", poll);
         await log("amail loaded; use `amail away on` before stepping away");
         return { stop, poll, processInboundEmail };
     }
